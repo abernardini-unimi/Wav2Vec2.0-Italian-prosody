@@ -1,0 +1,8 @@
+torch
+numpy
+torchaudio
+librosa
+soundfile
+transformers
+datasets
+pandas

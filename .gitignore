@@ -1,0 +1,23 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# --- Model Checkpoints & Outputs ---
+wav2vec_output/
+trainer_output/
+*.pt
+*.bin
+*.pth
+*.safetensors
+
+# --- IDE & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Logs & Temp ---
+*.log
