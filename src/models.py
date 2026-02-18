@@ -1,24 +1,19 @@
 import torch
 import torch.nn as nn
-from torch.nn import MSELoss
-
 from transformers.models.wav2vec2.modeling_wav2vec2 import (
     Wav2Vec2PreTrainedModel,
     Wav2Vec2Model
 )
-
 from src.modeling_outputs import SpeechClassifierOutput
-
 
 class CCCLoss(nn.Module):
     def __init__(self):
         super().__init__()
 
     def forward(self, gold, pred):
-        # FIX: Forziamo i target a diventare Float prima di calcolare la media
+        # Assicuriamoci che siano float
         gold = gold.float()
-        
-        # Pred e Gold shape: (batch_size, num_labels)
+        pred = pred.float()
         
         # Medie
         gold_mean = torch.mean(gold, dim=0)
@@ -32,21 +27,23 @@ class CCCLoss(nn.Module):
         cov = torch.mean((gold - gold_mean) * (pred - pred_mean), dim=0)
         
         # CCC formula
-        ccc = (2 * cov) / (gold_var + pred_var + (gold_mean - pred_mean) ** 2)
+        numerator = 2 * cov
+        denominator = gold_var + pred_var + (gold_mean - pred_mean) ** 2
         
-        # Loss = 1 - CCC (per minimizzare)
+        # Aggiungiamo un epsilon piccolissimo per evitare divisioni per zero (NaN)
+        eps = 1e-8
+        ccc = numerator / (denominator + eps)
+        
+        # Loss = 1 - CCC
         loss = 1.0 - ccc
         
-        # Ritorniamo la media delle loss delle 3 dimensioni
         return torch.mean(loss)
-    
 
 class Wav2Vec2ClassificationHead(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.dropout = nn.Dropout(config.final_dropout)
-        # Qui num_labels sarà 3
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
 
     def forward(self, features, **kwargs):
@@ -58,7 +55,6 @@ class Wav2Vec2ClassificationHead(nn.Module):
         x = self.out_proj(x)
         return x
 
-
 class Wav2Vec2ForSpeechClassification(Wav2Vec2PreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -69,17 +65,8 @@ class Wav2Vec2ForSpeechClassification(Wav2Vec2PreTrainedModel):
         self.wav2vec2 = Wav2Vec2Model(config)
         self.classifier = Wav2Vec2ClassificationHead(config)
 
-        # Post-init weights (importante per inizializzare la head randomicamente)
         self.init_weights()
         self.loss_fct = CCCLoss()
-
-    @property
-    def all_tied_weights_keys(self):
-        """
-        Fix per compatibilità con versioni recenti di Transformers.
-        Impedisce l'AttributeError durante from_pretrained.
-        """
-        return {}
 
     def freeze_feature_extractor(self):
         self.wav2vec2.feature_extractor._freeze_parameters()
@@ -114,30 +101,34 @@ class Wav2Vec2ForSpeechClassification(Wav2Vec2PreTrainedModel):
             return_dict=return_dict,
         )
         
-        # Gestione sicura dell'output (sia dizionario che tupla)
-        if isinstance(outputs, dict): # o BaseModelOutput
-            hidden_states = outputs['last_hidden_state']
+        # 1. FIX LOGICA: Estrazione corretta senza sovrascrittura
+        if isinstance(outputs, dict) or hasattr(outputs, 'last_hidden_state'):
+            hidden_states = outputs.last_hidden_state
         else:
             hidden_states = outputs[0]
 
-        hidden_states = outputs[0]
+        # Pooling
         hidden_states = self.merged_strategy(hidden_states, mode=self.pooling_mode)
+        
+        # Logits grezzi
         logits = self.classifier(hidden_states)
+
+        # 2. FIX MATEMATICO: Applicazione Sigmoide per output 0-1
+        # Questo è fondamentale se i tuoi target sono normalizzati tra 0 e 1
+        preds = torch.sigmoid(logits)
 
         loss = None
         if labels is not None:
-            # FORZIAMO l'uso della CCC Loss per la regressione dimensionale
-            # Assumiamo che labels abbia shape (batch, 3)
-            loss = self.loss_fct(labels, logits)
+            # Calcoliamo la loss usando le PREDIZIONI (con sigmoide), non i logits
+            loss = self.loss_fct(labels, preds)
 
         if not return_dict:
-            output = (logits,) + outputs[2:]
+            output = (preds,) + outputs[2:] # Restituiamo preds, non logits
             return ((loss,) + output) if loss is not None else output
 
         return SpeechClassifierOutput(
             loss=loss,
-            logits=logits,
+            logits=preds, # Restituiamo preds normalizzate
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-        
