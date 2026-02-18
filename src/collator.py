@@ -20,7 +20,6 @@ class DataCollatorCTCWithPadding:
         input_features = [{"input_values": feature["input_values"]} for feature in features]
         label_features = [feature["labels"] for feature in features]
 
-        # Padding dell'audio
         batch = self.feature_extractor.pad(
             input_features,
             padding=self.padding,
@@ -29,15 +28,18 @@ class DataCollatorCTCWithPadding:
             return_tensors="pt",
         )
 
-        # Gestione Labels:
-        # Se il primo elemento è float, assumiamo regressione -> float
-        # Altrimenti classification -> long
         if len(label_features) > 0:
-            if isinstance(label_features[0], float):
+            # Controlla se il primo elemento è una lista (regressione multi-output)
+            # oppure un singolo valore (classificazione o regressione singola)
+            first = label_features[0]
+            if isinstance(first, (list, tuple)):
+                # Regressione multi-output: [arousal, valence, dominance]
+                d_type = torch.float
+            elif isinstance(first, float):
                 d_type = torch.float
             else:
                 d_type = torch.long
-            
+
             batch["labels"] = torch.tensor(label_features, dtype=d_type)
 
         return batch
