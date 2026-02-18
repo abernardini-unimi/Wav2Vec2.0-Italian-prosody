@@ -56,6 +56,12 @@ class Wav2Vec2ClassificationHead(nn.Module):
         return x
 
 class Wav2Vec2ForSpeechClassification(Wav2Vec2PreTrainedModel):
+    _tied_weights_keys = []
+
+    @property
+    def all_tied_weights_keys(self):
+        return {}
+    
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
