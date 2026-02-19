@@ -82,7 +82,6 @@ During training, the script automatically calculates:
 
 * **Ai4ser Data**: The dataset provides mean values for Valence, Dominance, and Arousal on a scale from -3 to +3.
 * **Resampling**: All audio files are automatically resampled to **16,000 Hz** during preprocessing.
-* **Normalization**: Targets are normalized between 0 and 1 before training using the formula: . The `split_dataset.py` script handles this automatically.
 
 ---
 
